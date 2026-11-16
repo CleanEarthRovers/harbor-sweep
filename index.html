@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Harbor Sweep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* One world: a working harbor seen from above. Colors come off the rover's hull. */
+  --navy:#101d36;      /* rover deck, cards */
+  --ink:#070e1c;       /* page behind the phone column */
+  --water:#1b777d;     /* harbor water */
+  --deep:#0f4954;      /* water shadow */
+  --gold:#e8b53a;      /* rover panels, the one loud color */
+  --foam:#f4efe1;      /* text, wake, paper */
+  --coral:#f0714f;     /* warnings only */
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --body:"Atkinson Hyperlegible",Verdana,system-ui,sans-serif;
+  /* layout: one phone-width column; the canvas harbor fills it, a HUD strip rides on top, cards float over the water */
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--ink);color:var(--foam);font-family:var(--body);overflow:hidden;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+#app{position:relative;height:100%;max-width:480px;margin:0 auto;overflow:hidden;background:var(--water)}
+#sea{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+/* HUD */
+#hud{position:absolute;left:0;right:0;top:0;height:58px;padding:8px 16px;display:flex;align-items:center;gap:12px;
+  background:var(--navy);border-bottom:3px solid var(--gold);z-index:3}
+#hud .lvl{flex:1;min-width:0}
+#lvlName{font-family:var(--display);font-weight:900;font-size:21px;letter-spacing:.04em;line-height:1;text-transform:uppercase;white-space:nowrap}
+#meter{margin-top:6px;height:6px;background:rgba(244,239,225,.18);border-radius:3px;overflow:hidden}
+#meterFill{height:100%;width:100%;background:var(--gold);border-radius:3px;transform-origin:left}
+#hud .num{text-align:right;line-height:1}
+#hud .num b{display:block;font-family:var(--display);font-weight:900;font-size:30px;font-variant-numeric:tabular-nums;color:var(--gold)}
+#hud .num span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+#toast{position:absolute;left:16px;right:16px;top:70px;z-index:3;display:flex;justify-content:center;pointer-events:none}
+#toast span{background:var(--foam);color:var(--navy);font-weight:700;font-size:15px;padding:8px 14px;border-radius:4px;
+  border-left:6px solid var(--coral);opacity:0;transform:translateY(-6px);transition:opacity .2s,transform .2s;text-wrap:balance}
+#toast.on span{opacity:1;transform:none}
+
+/* Plan bar */
+#planbar{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:10px 16px 14px;background:var(--navy);border-top:3px solid var(--gold);
+  display:flex;flex-direction:column;gap:8px}
+#planbar p{font-size:14px;line-height:1.3;min-height:2.6em}
+#planbar button{padding:10px 16px;font-size:22px}
+#planbar .row{display:flex;gap:10px}
+
+/* Cards */
+.scrim{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(7,14,28,.62);overflow-y:auto}
+.card{width:100%;max-width:400px;background:var(--navy);border-top:10px solid var(--gold);padding:22px 20px 20px;
+  display:flex;flex-direction:column;gap:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);margin:auto}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:700}
+h1,h2{font-family:var(--display);font-weight:900;text-transform:uppercase;line-height:.9;text-wrap:balance}
+h1{font-size:clamp(50px,17vw,78px);letter-spacing:.01em}
+h1 em{font-style:normal;color:var(--gold);display:block}
+h2{font-size:38px;letter-spacing:.02em}
+h2 b{color:var(--gold)}
+.card p{font-size:16px;line-height:1.45;max-width:65ch}
+.steps{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}
+.steps li{display:flex;gap:12px;align-items:baseline;font-size:16px;line-height:1.35}
+.steps li i{font-style:normal;font-family:var(--display);font-weight:900;font-size:22px;color:var(--gold);min-width:16px}
+.rule{height:1px;background:rgba(244,239,225,.2)}
+.small{font-size:12.5px !important;line-height:1.4 !important;opacity:.75}
+.small a{color:var(--foam)}
+button{font-family:var(--display);font-weight:900;font-size:24px;letter-spacing:.06em;text-transform:uppercase;
+  border:0;border-radius:4px;padding:14px 18px;cursor:pointer;color:var(--navy);background:var(--gold);flex:1;touch-action:manipulation}
+button:active{transform:translateY(2px)}
+button:focus-visible,a:focus-visible{outline:3px solid var(--foam);outline-offset:3px}
+button.ghost{background:transparent;color:var(--foam);box-shadow:inset 0 0 0 2px rgba(244,239,225,.5);flex:0 0 auto}
+button:disabled{opacity:.4;cursor:default}
+
+/* End-screen data */
+.totals{display:flex;gap:10px}
+.totals div{flex:1;background:rgba(244,239,225,.08);padding:10px 12px;border-radius:4px}
+.totals b{display:block;font-family:var(--display);font-weight:900;font-size:40px;line-height:1;color:var(--gold);font-variant-numeric:tabular-nums}
+.totals span{font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:118px 1fr 26px;gap:8px;align-items:center;font-size:14px}
+.bar .track{height:14px;background:rgba(244,239,225,.1);border-radius:2px;overflow:hidden}
+.bar .fill{height:100%;border-radius:2px;min-width:2px}
+.bar .n{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.facts{list-style:none;padding:0;display:flex;flex-direction:column;gap:6px;font-size:15px;line-height:1.35}
+.facts li{padding-left:14px;border-left:3px solid var(--gold)}
+[hidden]{display:none !important}
+@media (prefers-reduced-motion:reduce){#toast span{transition:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="sea" aria-label="Top-down view of a harbor with a trash-collecting rover"></canvas>
+
+  <div id="hud" hidden>
+    <div class="lvl">
+      <div id="lvlName">Level 1 · Remote control</div>
+      <div id="meter"><div id="meterFill"></div></div>
+    </div>
+    <div class="num"><b id="count">0</b><span>items</span></div>
+  </div>
+  <div id="toast" aria-live="polite"><span id="toastText"></span></div>
+
+  <div id="planbar" hidden>
+    <p id="planHint">Draw a route from the rover with your finger. The gold bar shows how much route is left.</p>
+    <div class="row">
+      <button class="ghost" id="btnClear" type="button">Clear</button>
+      <button id="btnLaunch" type="button" disabled>Launch</button>
+    </div>
+  </div>
+
+  <!-- Title -->
+  <div class="scrim" id="c-title">
+    <div class="card">
+      <div class="eyebrow">West Harbor · San Pedro</div>
+      <h1>Harbor <em>Sweep</em></h1>
+      <p>Trash floats into the harbor every day. Pilot the robot that scoops it up before it reaches the ocean. First you steer. Then the rover drives itself.</p>
+      <div class="row" style="display:flex"><button id="btnStart" type="button">Start sweep</button></div>
+      <p class="small">About 90 seconds. Student concept by a USC WRIT 340 ATLAS team for Clean Earth Rovers.</p>
+    </div>
+  </div>
+
+  <!-- Level 1 briefing -->
+  <div class="scrim" id="c-brief1" hidden>
+    <div class="card">
+      <div class="eyebrow">Level 1 of 2</div>
+      <h2>Remote <b>control</b></h2>
+      <ul class="steps">
+        <li><i>1</i><span><strong>Drag anywhere</strong> to steer the rover.</span></li>
+        <li><i>2</i><span><strong>Scoop trash</strong> through the open front, between the two floats.</span></li>
+        <li><i>3</i><span><strong>Keep clear</strong> of sailboats and sea lions.</span></li>
+      </ul>
+      <p class="small">You have <span id="l1secs">35</span> seconds. On a keyboard, use the arrow keys.</p>
+      <div style="display:flex"><button id="btnGo1" type="button">Take the controls</button></div>
+    </div>
+  </div>
+
+  <!-- Level 1 result + Level 2 briefing -->
+  <div class="scrim" id="c-result1" hidden>
+    <div class="card">
+      <div class="eyebrow">Level 1 complete</div>
+      <h2>You scooped <b id="r1n">0</b></h2>
+      <p>Real operators steer the rover the same way, standing on the dock with a handheld controller.</p>
+      <div class="rule"></div>
+      <div class="eyebrow">Level 2 of 2</div>
+      <h2>Auto<b>pilot</b></h2>
+      <ul class="steps">
+        <li><i>1</i><span><strong>Draw a route</strong> on the water.</span></li>
+        <li><i>2</i><span>The rover <strong>drives it alone</strong> and stops by itself for boats and wildlife.</span></li>
+        <li><i>3</i><span>The current keeps pushing trash. <strong>Aim a little ahead</strong> of the arrows.</span></li>
+      </ul>
+      <div style="display:flex"><button id="btnPlan" type="button">Plan the route</button></div>
+    </div>
+  </div>
+
+  <!-- End -->
+  <div class="scrim" id="c-end" hidden>
+    <div class="card">
+      <div class="eyebrow">Your sweep data</div>
+      <h2><b id="endTotal">0</b> items out of the harbor</h2>
+      <div class="totals">
+        <div><b id="endL1">0</b><span>Remote control</span></div>
+        <div><b id="endL2">0</b><span>Autopilot</span></div>
+        <div><b id="endStops">0</b><span>Safety stops</span></div>
+      </div>
+      <p id="endInsight"></p>
+      <div class="eyebrow">What you collected</div>
+      <div class="bars" id="endBars"></div>
+      <p class="small">The real rover crew sorts and counts its catch the same way, so the harbor knows what kind of trash is getting in.</p>
+      <div class="rule"></div>
+      <div class="eyebrow">The real rover</div>
+      <ul class="facts" id="endFacts"></ul>
+      <div style="display:flex"><button id="btnAgain" type="button">Sweep again</button></div>
+      <p class="small" id="endSources"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ------------------------------------------------------------------
+   EDIT HERE. Timings and the real-world facts shown on the end screen.
+   Check every fact with Clean Earth Rovers before the showcase.
+------------------------------------------------------------------- */
+const CONFIG = {
+  level1Seconds: 35,
+  level2Seconds: 28,
+  facts: [
+    "Holds up to 100 pounds of floating trash before it heads back to be emptied.",
+    "Runs on batteries for up to 20 hours on one charge.",
+    "Steered by remote control or sent along a pre-planned path, just like your two levels.",
+    "About 5 feet long and 5 feet wide, small enough for tight corners of a marina."
+  ],
+  sources: [
+    ["ABC7 Los Angeles", "https://abc7.com/post/robots-removing-trash-cleaning-water-port-los-angeles/18943401/"],
+    ["Phys.org", "https://phys.org/news/2024-02-device-huntington-beach.html"],
+    ["DredgeWire", "https://dredgewire.com/huntington-beach-tries-out-ocean-cleaning-robot-in-hard-to-reach-local-waterways/"]
+  ]
+};
+
+const TYPES = [
+  {id:"bottle",  name:"Plastic bottles", one:"Bottle",  color:"#7fd3e6"},
+  {id:"wrapper", name:"Snack wrappers",  one:"Wrapper", color:"#f0714f"},
+  {id:"cup",     name:"Cups and lids",   one:"Cup",     color:"#f4efe1"},
+  {id:"can",     name:"Cans",            one:"Can",     color:"#b9c2cf"},
+  {id:"foam",    name:"Foam pieces",     one:"Foam",    color:"#e8b53a"}
+];
+
+const $ = id => document.getElementById(id);
+const cv = $("sea"), ctx = cv.getContext("2d");
+const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const C = {navy:"#101d36", gold:"#e8b53a", foam:"#f4efe1", coral:"#f0714f", water:"#1b777d", deep:"#0f4954"};
+
+let W = 360, H = 640, S = 1, DPR = 1;
+let B = {l:0, r:0, t:0, b:0};           // water bounds
+const HUD_H = 58;
+let SHORE_H = 34, DOCK_H = 96, INSET = 0;   // INSET: height of the plan bar when it is showing
+
+const G = {
+  mode:"title", t:0, timeLeft:0, total:1,
+  rover:{x:0, y:0, h:-Math.PI/2, vx:0, vy:0, stall:0, immune:0, wait:false, scoop:0},
+  trash:[], boats:[], lion:{state:"down", t:1.5, x:0, y:0}, pops:[],
+  counts:{l1:{}, l2:{}}, stops:{l1:0, l2:0},
+  path:[], cum:[], pathLen:0, budget:0, prog:0, drawing:false, doneT:0,
+  joy:null, keys:{}, cur:{x:0, y:0}, best:0
+};
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const levelKey = () => (G.mode === "run2" ? "l2" : "l1");
+const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+
+/* ---------- layout ---------- */
+function resize(){
+  const r = cv.getBoundingClientRect();
+  W = Math.max(280, r.width); H = Math.max(420, r.height);
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  S = clamp(W / 375, .85, 1.3);
+  SHORE_H = 34 * S; DOCK_H = INSET ? 62 : 96;
+  B = {l:16 * S, r:W - 16 * S, t:HUD_H + SHORE_H + 14 * S, b:H - INSET - DOCK_H - 10 * S};
+  for (const t of G.trash){ t.x = clamp(t.x, B.l, B.r); t.y = clamp(t.y, B.t, B.b); }
+  if (G.mode === "title" || G.mode === "brief1") dockRover();
+  if (G.mode === "plan"){ G.path = []; G.pathLen = 0; $("btnLaunch").disabled = true; dockRover(); }
+}
+function dockRover(){
+  const r = G.rover;
+  r.x = W / 2; r.y = B.b - 4 * S; r.h = -Math.PI / 2; r.vx = r.vy = 0; r.stall = 0; r.immune = 0; r.wait = false;
+}
+
+/* ---------- world setup ---------- */
+function newTrash(fade){
+  let x, y, n = 0;
+  do { x = rnd(B.l + 10, B.r - 10); y = rnd(B.t + 10, B.b - 50 * S); n++; }
+  while (n < 20 && Math.hypot(x - G.rover.x, y - G.rover.y) < 80 * S);
+  const a = rnd(0, 6.283), sp = rnd(3, 8) * S;
+  return {type:TYPES[Math.floor(Math.random() * TYPES.length)], x, y, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp,
+          rot:rnd(0, 6.283), vr:rnd(-.5, .5), ph:rnd(0, 6.283), got:0, born:fade ? 0 : 1};
+}
+function setupWorld(nTrash){
+  G.trash = []; G.pops = [];
+  for (let i = 0; i < nTrash; i++) G.trash.push(newTrash(false));
+  const wh = B.b - B.t;
+  G.boats = [
+    {x:-40, y:B.t + wh * .27, dir:1,  sp:24 * S},
+    {x:W + 60, y:B.t + wh * .60, dir:-1, sp:19 * S}
+  ];
+  G.lion = {state:"down", t:2, x:W / 2, y:B.t + wh * .45};
+}
+
+/* ---------- flow ---------- */
+const cards = ["c-title", "c-brief1", "c-result1", "c-end"];
+function show(id){ for (const c of cards) $(c).hidden = c !== id; }
+function setHud(name){ $("hud").hidden = false; $("lvlName").textContent = name; }
+
+function toBrief1(){
+  G.counts = {l1:{}, l2:{}}; G.stops = {l1:0, l2:0};
+  G.mode = "brief1"; $("hud").hidden = true; $("planbar").hidden = true;
+  INSET = 0; resize(); dockRover(); setupWorld(14);
+  $("l1secs").textContent = CONFIG.level1Seconds;
+  show("c-brief1");
+}
+function startLevel1(){
+  G.mode = "play1"; G.timeLeft = G.total = CONFIG.level1Seconds; G.joy = null;
+  setHud("Level 1 · Remote control"); $("count").textContent = "0"; show(null);
+  toast("Drag anywhere to steer", 2200);
+}
+function endLevel1(){
+  G.mode = "result1"; G.joy = null;
+  $("r1n").textContent = sum(G.counts.l1) + (sum(G.counts.l1) === 1 ? " item" : " items");
+  show("c-result1");
+}
+function startPlan(){
+  G.mode = "plan"; show(null);
+  $("planHint").textContent = "Draw a route from the rover with your finger. The gold bar shows how much route is left.";
+  $("planbar").hidden = false; $("btnClear").disabled = false; $("btnLaunch").disabled = true;
+  INSET = $("planbar").offsetHeight; resize(); dockRover(); setupWorld(16);
+  const a = -0.38;                                     // current: up and to the right
+  G.cur = {x:Math.cos(a) * 2.6 * S, y:Math.sin(a) * 2.6 * S};
+  G.path = []; G.pathLen = 0; G.prog = 0; G.doneT = 0;
+  G.speed2 = 92 * S; G.budget = G.speed2 * (CONFIG.level2Seconds - 6);
+  setHud("Level 2 · Plan your route"); $("count").textContent = "0";
+}
+function launch(){
+  if (G.pathLen < 60) return;
+  G.cum = [0];
+  for (let i = 1; i < G.path.length; i++)
+    G.cum.push(G.cum[i - 1] + Math.hypot(G.path[i].x - G.path[i - 1].x, G.path[i].y - G.path[i - 1].y));
+  G.mode = "run2"; G.timeLeft = G.total = CONFIG.level2Seconds; G.prog = 0;
+  $("planHint").textContent = "Autopilot is driving. Watch it stop by itself for boats and sea lions.";
+  $("btnClear").disabled = true; $("btnLaunch").disabled = true; setHud("Level 2 · Autopilot");
+  toast("Hands off. The rover is driving.", 2200);
+}
+function endGame(){
+  G.mode = "end";
+  const l1 = sum(G.counts.l1), l2 = sum(G.counts.l2), tot = l1 + l2, stops = G.stops.l1 + G.stops.l2;
+  $("endTotal").textContent = tot; $("endL1").textContent = l1; $("endL2").textContent = l2; $("endStops").textContent = stops;
+  $("endInsight").textContent =
+    l2 > l1 ? "Autopilot beat your steering. One good route lets a rover clean a whole marina with nobody at the controls."
+    : l1 > l2 ? "Your steering beat the autopilot. Trash keeps drifting, so operators take over when a planned route misses."
+    : "A tie between you and the autopilot. Real crews use both: planned sweeps for coverage, remote control for the tricky spots.";
+  const max = Math.max(1, ...TYPES.map(t => (G.counts.l1[t.id] || 0) + (G.counts.l2[t.id] || 0)));
+  $("endBars").innerHTML = TYPES.map(t => {
+    const n = (G.counts.l1[t.id] || 0) + (G.counts.l2[t.id] || 0);
+    return '<div class="bar"><span>' + t.name + '</span><div class="track"><div class="fill" style="width:' +
+      Math.round(n / max * 100) + '%;background:' + t.color + '"></div></div><span class="n">' + n + '</span></div>';
+  }).join("");
+  $("endFacts").innerHTML = CONFIG.facts.map(f => "<li>" + f + "</li>").join("");
+  $("endSources").innerHTML = "Rover facts from " + CONFIG.sources.map(s =>
+    '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + "</a>").join(", ") +
+    ". Game scores are not real cleanup data.";
+  if (tot > G.best){ G.best = tot; try { localStorage.setItem("harborSweepBest", String(tot)); } catch (e) {} }
+  $("hud").hidden = true; $("planbar").hidden = true; show("c-end");
+}
+
+let toastT = 0;
+function toast(msg, ms){
+  $("toastText").textContent = msg; $("toast").classList.add("on");
+  clearTimeout(toastT); toastT = setTimeout(() => $("toast").classList.remove("on"), ms || 1800);
+}
+
+/* ---------- obstacles ---------- */
+function obstacleNear(px, py, pad){
+  for (const b of G.boats){
+    const dx = (px - b.x) / (30 * S + pad), dy = (py - b.y) / (12 * S + pad);
+    if (dx * dx + dy * dy < 1) return "sailboat";
+  }
+  const L = G.lion;
+  if (L.state !== "down" && Math.hypot(px - L.x, py - L.y) < 13 * S + pad) return "sea lion";
+  return null;
+}
+function updateObstacles(dt){
+  for (const b of G.boats){
+    b.x += b.dir * b.sp * dt;
+    if (b.dir > 0 && b.x > W + 70) b.x = -70;
+    if (b.dir < 0 && b.x < -70) b.x = W + 70;
+  }
+  const L = G.lion; L.t -= dt;
+  if (L.t <= 0){
+    if (L.state === "down"){
+      let n = 0;
+      do { L.x = rnd(B.l + 30, B.r - 30); L.y = rnd(B.t + 30, B.b - 90 * S); n++; }
+      while (n < 20 && Math.hypot(L.x - G.rover.x, L.y - G.rover.y) < 90 * S);
+      L.state = "warn"; L.t = 1.1;
+    } else if (L.state === "warn"){ L.state = "up"; L.t = 2.6; }
+    else { L.state = "down"; L.t = rnd(2, 3.5); }
+  }
+}
+
+/* ---------- collecting ---------- */
+function tryCollect(reach){
+  const r = G.rover, mx = r.x + Math.cos(r.h) * 12 * S, my = r.y + Math.sin(r.h) * 12 * S;
+  for (const t of G.trash){
+    if (t.got || t.born < .6) continue;
+    if (Math.hypot(t.x - mx, t.y - my) < reach){
+      t.got = .001;
+      const k = levelKey(); G.counts[k][t.type.id] = (G.counts[k][t.type.id] || 0) + 1;
+      $("count").textContent = sum(G.counts[k]);
+      G.pops.push({x:t.x, y:t.y - 10, text:"+1 " + t.type.one, t:0});
+      r.scoop = 1;
+      try { navigator.vibrate && navigator.vibrate(12); } catch (e) {}
+    }
+  }
+}
+function updateTrash(dt, uniform){
+  for (let i = G.trash.length - 1; i >= 0; i--){
+    const t = G.trash[i];
+    if (t.got){
+      t.got += dt * 4; t.x += (G.rover.x - t.x) * dt * 10; t.y += (G.rover.y - t.y) * dt * 10;
+      if (t.got >= 1) G.trash.splice(i, 1);
+      continue;
+    }
+    t.born = Math.min(1, t.born + dt * 1.5); t.rot += t.vr * dt;
+    if (uniform){ t.x += G.cur.x * dt; t.y += G.cur.y * dt; t.x = clamp(t.x, B.l, B.r); t.y = clamp(t.y, B.t, B.b); }
+    else {
+      t.x += t.vx * dt; t.y += t.vy * dt;
+      if (t.x < B.l || t.x > B.r){ t.vx *= -1; t.x = clamp(t.x, B.l, B.r); }
+      if (t.y < B.t || t.y > B.b - 40 * S){ t.vy *= -1; t.y = clamp(t.y, B.t, B.b - 40 * S); }
+    }
+  }
+}
+
+/* ---------- path helpers ---------- */
+function addPathPoint(p){
+  if (!G.path.length) G.path.push({x:G.rover.x, y:G.rover.y});
+  const last = G.path[G.path.length - 1];
+  let x = clamp(p.x, B.l, B.r), y = clamp(p.y, B.t, B.b);
+  let d = Math.hypot(x - last.x, y - last.y);
+  if (d < 6) return;
+  const left = G.budget - G.pathLen;
+  if (left <= 1){ G.drawing = false; return; }
+  if (d > left){ const f = left / d; x = last.x + (x - last.x) * f; y = last.y + (y - last.y) * f; d = left; G.drawing = false;
+    toast("That is all the route the battery allows", 1800); }
+  G.path.push({x, y}); G.pathLen += d;
+  $("btnLaunch").disabled = G.pathLen < 60;
+}
+function pathAt(d){
+  const P = G.path, Cm = G.cum;
+  if (d <= 0) return {x:P[0].x, y:P[0].y, a:Math.atan2(P[1].y - P[0].y, P[1].x - P[0].x)};
+  for (let i = 1; i < P.length; i++){
+    if (d <= Cm[i]){
+      const f = (d - Cm[i - 1]) / Math.max(.001, Cm[i] - Cm[i - 1]);
+      return {x:P[i - 1].x + (P[i].x - P[i - 1].x) * f, y:P[i - 1].y + (P[i].y - P[i - 1].y) * f,
+              a:Math.atan2(P[i].y - P[i - 1].y, P[i].x - P[i - 1].x)};
+    }
+  }
+  const n = P.length - 1;
+  return {x:P[n].x, y:P[n].y, a:Math.atan2(P[n].y - P[n - 1].y, P[n].x - P[n - 1].x)};
+}
+function turnTo(h, a, k){
+  let d = a - h; while (d > Math.PI) d -= 6.283185; while (d < -Math.PI) d += 6.283185;
+  return h + d * Math.min(1, k);
+}
+
+/* ---------- update ---------- */
+function update(dt){
+  G.t += dt;
+  const r = G.rover;
+  r.scoop = Math.max(0, r.scoop - dt * 3);
+  for (let i = G.pops.length - 1; i >= 0; i--){ G.pops[i].t += dt; if (G.pops[i].t > 1) G.pops.splice(i, 1); }
+
+  if (G.mode === "play1"){
+    updateObstacles(dt);
+    let tx = 0, ty = 0;
+    if (G.joy){
+      const dx = G.joy.x - G.joy.ox, dy = G.joy.y - G.joy.oy, d = Math.hypot(dx, dy), m = 46;
+      if (d > 6){ const k = Math.min(1, d / m); tx = dx / d * k; ty = dy / d * k; }
+    }
+    const K = G.keys;
+    if (K.ArrowLeft || K.a) tx -= 1; if (K.ArrowRight || K.d) tx += 1;
+    if (K.ArrowUp || K.w) ty -= 1; if (K.ArrowDown || K.s) ty += 1;
+    const tl = Math.hypot(tx, ty); if (tl > 1){ tx /= tl; ty /= tl; }
+    const max = 150 * S;
+    if (r.stall > 0){ r.stall -= dt; tx = ty = 0; }
+    r.immune = Math.max(0, r.immune - dt);
+    r.vx += (tx * max - r.vx) * Math.min(1, dt * 5); r.vy += (ty * max - r.vy) * Math.min(1, dt * 5);
+    r.x = clamp(r.x + r.vx * dt, B.l + 6, B.r - 6); r.y = clamp(r.y + r.vy * dt, B.t + 6, B.b);
+    const sp = Math.hypot(r.vx, r.vy);
+    if (sp > 10) r.h = turnTo(r.h, Math.atan2(r.vy, r.vx), dt * 9);
+    if (!r.immune){
+      const hit = obstacleNear(r.x, r.y, 14 * S);
+      if (hit){
+        r.stall = 1.3; r.immune = 2.6; r.vx *= -.4; r.vy *= -.4; G.stops.l1++;
+        toast("Too close to a " + hit + ". The rover stops to keep it safe.", 2000);
+        try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
+      }
+    }
+    if (sp > 14) tryCollect(19 * S);
+    updateTrash(dt, false);
+    if (G.trash.filter(t => !t.got).length < 12) G.trash.push(newTrash(true));
+    G.timeLeft -= dt;
+    $("meterFill").style.transform = "scaleX(" + clamp(G.timeLeft / G.total, 0, 1) + ")";
+    if (G.timeLeft <= 0) endLevel1();
+  }
+  else if (G.mode === "plan"){
+    $("meterFill").style.transform = "scaleX(" + clamp(1 - G.pathLen / G.budget, 0, 1) + ")";
+  }
+  else if (G.mode === "run2"){
+    updateObstacles(dt);
+    const ahead = pathAt(Math.min(G.pathLen, G.prog + 26 * S));
+    const seen = obstacleNear(ahead.x, ahead.y, 20 * S) || obstacleNear(r.x, r.y, 16 * S);
+    if (seen && G.prog < G.pathLen){
+      if (!r.wait){ r.wait = true; G.stops.l2++; toast("Sensors spot a " + seen + ". The rover waits on its own.", 2200); }
+    } else {
+      r.wait = false;
+      G.prog = Math.min(G.pathLen, G.prog + G.speed2 * dt);
+    }
+    const p = pathAt(G.prog);
+    r.x = p.x; r.y = p.y; r.h = turnTo(r.h, p.a, dt * 10);
+    r.vx = r.wait ? 0 : Math.cos(r.h) * G.speed2; r.vy = r.wait ? 0 : Math.sin(r.h) * G.speed2;
+    if (!r.wait && G.prog < G.pathLen) tryCollect(22 * S);
+    updateTrash(dt, true);
+    G.timeLeft -= dt;
+    $("meterFill").style.transform = "scaleX(" + clamp(G.timeLeft / G.total, 0, 1) + ")";
+    if (G.prog >= G.pathLen || G.timeLeft <= 0){ G.doneT += dt; r.vx = r.vy = 0; if (G.doneT > 1) endGame(); }
+  }
+  else {
+    // title, briefings, end: the harbor keeps living behind the card
+    if (!reduceMotion){ updateObstacles(dt); updateTrash(dt, false); }
+  }
+}
+
+/* ---------- drawing ---------- */
+function rr(x, y, w, h, rad){
+  ctx.beginPath(); ctx.moveTo(x + rad, y); ctx.arcTo(x + w, y, x + w, y + h, rad); ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad); ctx.arcTo(x, y, x + w, y, rad); ctx.closePath();
+}
+function drawWater(){
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#23878a"); g.addColorStop(1, C.deep);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(244,239,225,.13)"; ctx.lineWidth = 1.5; ctx.lineCap = "round";
+  const tt = reduceMotion ? 0 : G.t;
+  for (let i = 0; i < 46; i++){
+    const x = ((i * 97.3 + tt * 5) % (W + 60)) - 30;
+    const y = HUD_H + ((i * 61.7) % (H - HUD_H));
+    const len = 10 + (i % 5) * 5, wob = Math.sin(tt * .8 + i) * 2;
+    ctx.beginPath(); ctx.moveTo(x, y + wob); ctx.quadraticCurveTo(x + len / 2, y - 3 + wob, x + len, y + wob); ctx.stroke();
+  }
+}
+function drawCurrent(){
+  const a = Math.atan2(G.cur.y, G.cur.x), tt = reduceMotion ? 0 : G.t;
+  ctx.strokeStyle = "rgba(244,239,225,.28)"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const step = 78 * S, off = (tt * 9) % step;
+  for (let y = B.t + 20; y < B.b - 30; y += step * .8)
+    for (let x = B.l - step + off; x < B.r; x += step){
+      const px = x + ((y / step) % 2 > 1 ? step / 2 : 0);
+      if (px < B.l + 6 || px > B.r - 6) continue;
+      ctx.save(); ctx.translate(px, y); ctx.rotate(a);
+      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(7, 0); ctx.moveTo(2, -5); ctx.lineTo(8, 0); ctx.lineTo(2, 5); ctx.stroke();
+      ctx.restore();
+    }
+}
+function drawShore(){
+  const y0 = HUD_H;
+  ctx.fillStyle = "#d9c7a0"; ctx.fillRect(0, y0, W, SHORE_H);
+  ctx.fillStyle = "#b9a67e"; ctx.fillRect(0, y0 + SHORE_H - 4, W, 4);
+  for (let i = 0; i < 18; i++){                               // riprap rocks along the water line
+    const x = (i * 53.1 + 12) % W, rsz = (5 + (i % 4) * 2) * S;
+    ctx.fillStyle = i % 3 ? "#8e8a82" : "#a7a39a";
+    ctx.beginPath(); ctx.ellipse(x, y0 + SHORE_H + 2, rsz, rsz * .7, i, 0, 6.283); ctx.fill();
+  }
+  for (let i = 0; i < 4; i++){                                // palms, seen from above
+    const x = W * (.14 + i * .24), y = y0 + SHORE_H * .45;
+    ctx.strokeStyle = "#2f6b3c"; ctx.lineWidth = 3.2 * S; ctx.lineCap = "round";
+    for (let k = 0; k < 7; k++){
+      const a = k / 7 * 6.283 + i;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + Math.cos(a) * 8 * S, y + Math.sin(a) * 8 * S - 2, x + Math.cos(a) * 12 * S, y + Math.sin(a) * 12 * S); ctx.stroke();
+    }
+    ctx.fillStyle = "#5a4630"; ctx.beginPath(); ctx.arc(x, y, 2.2 * S, 0, 6.283); ctx.fill();
+  }
+}
+function drawDock(){
+  const y0 = H - INSET - DOCK_H + 26;
+  ctx.fillStyle = "rgba(7,14,28,.25)"; ctx.fillRect(0, y0 + 4, W, H - y0);
+  ctx.fillStyle = "#8a6a45"; ctx.fillRect(0, y0, W, H - y0);
+  ctx.strokeStyle = "rgba(40,26,12,.35)"; ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 22){ ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, H); ctx.stroke(); }
+  ctx.fillStyle = "#6f5436"; ctx.fillRect(0, y0, W, 5);
+  ctx.fillStyle = "#2a2f38";
+  for (const fx of [.18, .82]){ rr(W * fx - 9, y0 + 12, 18, 6, 3); ctx.fill(); }
+}
+const drawType = {
+  bottle(){ ctx.fillStyle = "#7fd3e6"; rr(-3.5, -7, 7, 13, 3); ctx.fill(); ctx.fillStyle = "#2b63b0"; rr(-2, -10, 4, 3.5, 1); ctx.fill();
+            ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.fillRect(-3.5, -2, 7, 3.5); },
+  wrapper(){ ctx.fillStyle = "#f0714f"; ctx.beginPath(); ctx.moveTo(-6, -7); ctx.lineTo(-3, -8.5); ctx.lineTo(0, -7); ctx.lineTo(3, -8.5); ctx.lineTo(6, -7);
+             ctx.lineTo(6, 7); ctx.lineTo(3, 8.5); ctx.lineTo(0, 7); ctx.lineTo(-3, 8.5); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill();
+             ctx.fillStyle = "#ffd76a"; ctx.beginPath(); ctx.ellipse(0, 0, 3.6, 2.6, 0, 0, 6.283); ctx.fill(); },
+  cup(){ ctx.fillStyle = "#f4efe1"; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
+         ctx.strokeStyle = "#c9c1ab"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, 6.283); ctx.stroke();
+         ctx.strokeStyle = "#e0463c"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(1, -1); ctx.lineTo(8, -8); ctx.stroke(); },
+  can(){ ctx.fillStyle = "#b9c2cf"; rr(-4, -7, 8, 14, 2.5); ctx.fill(); ctx.fillStyle = "#3f9b63"; ctx.fillRect(-4, -3.5, 8, 7);
+         ctx.fillStyle = "#8f98a6"; ctx.fillRect(-4, -7, 8, 1.8); },
+  foam(){ ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.moveTo(-7, -3); ctx.lineTo(-2, -7); ctx.lineTo(6, -5); ctx.lineTo(7, 2); ctx.lineTo(2, 7); ctx.lineTo(-6, 5); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = "#d8dde2"; ctx.beginPath(); ctx.arc(-1, -1, 1.2, 0, 6.283); ctx.arc(3, 2, 1, 0, 6.283); ctx.arc(-3, 3, .9, 0, 6.283); ctx.fill(); }
+};
+function drawTrash(){
+  for (const t of G.trash){
+    const bob = reduceMotion ? 0 : Math.sin(G.t * 2 + t.ph) * 1.2;
+    const sc = S * 1.15 * (t.got ? Math.max(0, 1 - t.got) : t.born);
+    ctx.save(); ctx.translate(t.x, t.y + bob);
+    ctx.globalAlpha = t.born;
+    if (!t.got){ ctx.strokeStyle = "rgba(244,239,225,.35)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(0, 0, 12 * S, 9 * S, 0, 0, 6.283); ctx.stroke(); }
+    ctx.rotate(t.rot); ctx.scale(sc, sc);
+    drawType[t.type.id]();
+    ctx.restore();
+  }
+}
+function drawBoats(){
+  for (const b of G.boats){
+    ctx.save(); ctx.translate(b.x, b.y); ctx.scale(b.dir * S, S);
+    ctx.strokeStyle = "rgba(244,239,225,.35)"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-30, -7); ctx.lineTo(-46, -12); ctx.moveTo(-30, 7); ctx.lineTo(-46, 12); ctx.stroke();
+    ctx.fillStyle = "rgba(7,14,28,.25)"; ctx.beginPath(); ctx.ellipse(0, 4, 30, 11, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = "#fbfaf5"; ctx.beginPath(); ctx.moveTo(32, 0); ctx.quadraticCurveTo(14, -13, -26, -10); ctx.lineTo(-28, 10); ctx.quadraticCurveTo(14, 13, 32, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#c98a4b"; rr(-20, -5.5, 26, 11, 4); ctx.fill();
+    ctx.strokeStyle = "#e0463c"; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-18, 5); ctx.stroke();
+    ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(8, 0, 2, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawLion(){
+  const L = G.lion; if (L.state === "down") return;
+  ctx.save(); ctx.translate(L.x, L.y);
+  const k = (G.t * 1.6) % 1;
+  ctx.strokeStyle = "rgba(244,239,225," + (0.6 * (1 - k)) + ")"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, (10 + k * 16) * S, 0, 6.283); ctx.stroke();
+  if (L.state === "up"){
+    ctx.scale(S, S);
+    ctx.fillStyle = "#5b4634"; ctx.beginPath(); ctx.ellipse(0, 0, 9, 11, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = "#7a614b"; ctx.beginPath(); ctx.ellipse(0, -7, 5, 5, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = "#1a1410"; ctx.beginPath(); ctx.arc(-3.5, -3, 1.3, 0, 6.283); ctx.arc(3.5, -3, 1.3, 0, 6.283); ctx.arc(0, -10.5, 1.4, 0, 6.283); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawPath(){
+  if (G.path.length < 2) return;
+  ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(7,14,28,.35)"; ctx.lineWidth = 7; ctx.beginPath();
+  G.path.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 3.5; ctx.setLineDash([10, 9]); ctx.lineDashOffset = reduceMotion ? 0 : -G.t * 24;
+  ctx.beginPath(); G.path.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+  ctx.setLineDash([]);
+  const e = G.path[G.path.length - 1];
+  ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(e.x, e.y, 7, 0, 6.283); ctx.fill();
+  ctx.fillStyle = C.navy; ctx.beginPath(); ctx.arc(e.x, e.y, 3, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function drawRover(){
+  const r = G.rover, sp = Math.hypot(r.vx, r.vy);
+  ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.h + Math.PI / 2); ctx.scale(S * 1.2, S * 1.2);
+  if (sp > 20){                                                // wake
+    ctx.strokeStyle = "rgba(244,239,225,.45)"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    const w = 6 + Math.sin(G.t * 12) * 2;
+    ctx.beginPath(); ctx.moveTo(-12, 20); ctx.lineTo(-15, 30 + w); ctx.moveTo(12, 20); ctx.lineTo(15, 30 + w); ctx.moveTo(0, 20); ctx.lineTo(0, 27 + w); ctx.stroke();
+  }
+  if (r.wait || r.stall > 0){                                  // sensor ring while stopped
+    ctx.strokeStyle = C.coral; ctx.lineWidth = 2; ctx.setLineDash([4, 5]);
+    ctx.beginPath(); ctx.arc(0, 0, 30 + Math.sin(G.t * 8) * 2, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.fillStyle = "rgba(7,14,28,.28)"; rr(-17, -17, 34, 40, 8); ctx.fill();
+  // catch basket between the floats
+  ctx.fillStyle = "rgba(244,239,225,.18)"; ctx.fillRect(-9, -14, 18, 18);
+  ctx.strokeStyle = "rgba(244,239,225,.5)"; ctx.lineWidth = .8;
+  for (let i = -6; i <= 6; i += 4){ ctx.beginPath(); ctx.moveTo(i, -14); ctx.lineTo(i, 4); ctx.stroke(); }
+  for (let j = -11; j <= 1; j += 4){ ctx.beginPath(); ctx.moveTo(-9, j); ctx.lineTo(9, j); ctx.stroke(); }
+  if (r.scoop > 0){ ctx.fillStyle = "rgba(232,181,58," + r.scoop * .8 + ")"; ctx.fillRect(-9, -14, 18, 18); }
+  // inflatable floats
+  ctx.fillStyle = "#2c3038"; rr(-17, -21, 9, 41, 4.5); ctx.fill(); rr(8, -21, 9, 41, 4.5); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.14)"; rr(-15.5, -19, 2.5, 36, 1.2); ctx.fill(); rr(9.5, -19, 2.5, 36, 1.2); ctx.fill();
+  // deck
+  ctx.fillStyle = C.navy; rr(-15, 2, 30, 17, 2.5); ctx.fill();
+  ctx.fillStyle = C.gold; rr(-12, 5, 24, 8, 1.5); ctx.fill();
+  ctx.fillStyle = C.navy; ctx.fillRect(-12, 8.2, 24, 1.3);
+  ctx.fillStyle = "#d8dde2"; ctx.beginPath(); ctx.arc(0, 15.5, 2.3, 0, 6.283); ctx.fill();
+  ctx.fillStyle = "#4bd27a"; ctx.beginPath(); ctx.arc(8, 15.5, 1.3, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function drawJoy(){
+  const j = G.joy; if (!j || G.mode !== "play1") return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(244,239,225,.55)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(j.ox, j.oy, 46, 0, 6.283); ctx.stroke();
+  let dx = j.x - j.ox, dy = j.y - j.oy; const d = Math.hypot(dx, dy); if (d > 46){ dx = dx / d * 46; dy = dy / d * 46; }
+  ctx.fillStyle = "rgba(232,181,58,.85)"; ctx.beginPath(); ctx.arc(j.ox + dx, j.oy + dy, 17, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function drawPops(){
+  ctx.font = "900 " + Math.round(19 * S) + "px 'Big Shoulders Display','Arial Narrow',sans-serif"; ctx.textAlign = "center";
+  for (const p of G.pops){
+    ctx.globalAlpha = 1 - p.t; ctx.lineWidth = 4; ctx.strokeStyle = C.navy; ctx.fillStyle = C.gold;
+    const y = p.y - p.t * 26;
+    ctx.strokeText(p.text.toUpperCase(), clamp(p.x, 40, W - 40), y); ctx.fillText(p.text.toUpperCase(), clamp(p.x, 40, W - 40), y);
+  }
+  ctx.globalAlpha = 1;
+}
+function draw(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawWater();
+  if (G.mode === "plan" || G.mode === "run2") drawCurrent();
+  if (G.mode === "plan"){                                       // show where boats cross
+    ctx.strokeStyle = "rgba(240,113,79,.55)"; ctx.lineWidth = 2; ctx.setLineDash([3, 9]);
+    for (const b of G.boats){ ctx.beginPath(); ctx.moveTo(B.l, b.y); ctx.lineTo(B.r, b.y); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.font = "700 " + Math.round(11 * S) + "px 'Atkinson Hyperlegible',Verdana,sans-serif"; ctx.fillStyle = "rgba(244,239,225,.8)"; ctx.textAlign = "left";
+    for (const b of G.boats) ctx.fillText("BOAT LANE", B.l, b.y - 6);
+  }
+  if (G.mode === "plan" || G.mode === "run2") drawPath();
+  drawTrash(); drawLion(); drawRover(); drawBoats();
+  drawShore(); drawDock(); drawJoy(); drawPops();
+}
+
+/* ---------- input ---------- */
+function pt(e){ const r = cv.getBoundingClientRect(); return {x:e.clientX - r.left, y:e.clientY - r.top}; }
+cv.addEventListener("pointerdown", e => {
+  e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  const p = pt(e);
+  if (G.mode === "play1") G.joy = {ox:p.x, oy:p.y, x:p.x, y:p.y, id:e.pointerId};
+  else if (G.mode === "plan"){ G.drawing = true; addPathPoint(p); }
+});
+cv.addEventListener("pointermove", e => {
+  const p = pt(e);
+  if (G.mode === "play1" && G.joy && G.joy.id === e.pointerId){ G.joy.x = p.x; G.joy.y = p.y; }
+  else if (G.mode === "plan" && G.drawing) addPathPoint(p);
+});
+const up = e => { if (G.joy && G.joy.id === e.pointerId) G.joy = null; G.drawing = false; };
+cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+cv.addEventListener("contextmenu", e => e.preventDefault());
+window.addEventListener("keydown", e => { G.keys[e.key] = true; if (G.mode === "play1" && e.key.startsWith("Arrow")) e.preventDefault(); });
+window.addEventListener("keyup", e => { G.keys[e.key] = false; });
+window.addEventListener("blur", () => { G.keys = {}; G.joy = null; });
+
+$("btnStart").addEventListener("click", toBrief1);
+$("btnGo1").addEventListener("click", startLevel1);
+$("btnPlan").addEventListener("click", startPlan);
+$("btnClear").addEventListener("click", () => { G.path = []; G.pathLen = 0; $("btnLaunch").disabled = true; });
+$("btnLaunch").addEventListener("click", launch);
+$("btnAgain").addEventListener("click", toBrief1);
+window.addEventListener("resize", resize);
+
+/* ---------- boot ---------- */
+let last = 0;
+function frame(now){
+  const dt = Math.min(.05, (now - last) / 1000 || 0); last = now;
+  update(dt); draw();
+  requestAnimationFrame(frame);
+}
+function boot(data){
+  try { G.best = Number(localStorage.getItem("harborSweepBest")) || 0; } catch (e) {}
+  if (data && data.best) G.best = Math.max(G.best, data.best);
+  resize(); dockRover(); setupWorld(14); show("c-title");
+  requestAnimationFrame(frame);
+}
+const hot = window.claude && window.claude.hot;
+if (hot && hot.snapshot) hot.snapshot(() => ({best:G.best}));
+if (hot && hot.ready) hot.ready(boot); else boot((hot && hot.data) || {});
+})();
+</script>
+</body>
+</html>
